@@ -1,59 +1,48 @@
-const axios = require('axios');
-const path = require('path');
-const fs = require('fs-extra');
+const axios = require("axios");
+const fs = require("fs-extra");
 
 module.exports.config = {
-    name: "shoti",
-    version: "1.0.1",
-    permission: 0,
-    description: "Send a random Shoti video using Haji API",
-    prefix: false,
-    premium: false,
-    credits: "vrax (fixed by me)",
-    cooldowns: 10,
-    category: "media"
+  name: "shoti",
+  version: "1.0.0",
+  permission: 0,
+  credits: "converted by vrax",
+  description: "Get a random TikTok (Shoti) video",
+  prefix: false,
+  premium: false,
+  category: "video",
+  usages: "shoti",
+  cooldowns: 5
 };
 
-module.exports.run = async function ({ api, event }) {
-    const apiKey = "d5f543ba40e5c5063b90748d926a3ed784c28e102e083e205052b6a1f427055e";
-    const apiUrl = `https://haji-mix.up.railway.app/api/shoti?stream=true&api_key=${apiKey}`;
-    const fileName = `${event.messageID}.mp4`;
-    const filePath = path.join(__dirname, fileName);
+module.exports.languages = {
+  english: {
+    processing: "📲 Fetching random TikTok video...",
+    error: "❌ Failed to load TikTok video. Please try again later."
+  }
+};
 
-    try {
-        const response = await axios.get(apiUrl);
-        const data = response.data?.shoti;
+module.exports.run = async function ({ api, event, getText }) {
+  const threadID = event.threadID;
+  const messageID = event.messageID;
+  const filePath = __dirname + "/cache/shoti.mp4";
 
-        if (!data || !data.videoUrl) {
-            return api.sendMessage("❌ Could not retrieve video. Please try again later.", event.threadID, event.messageID);
-        }
+  try {
+    api.sendMessage(getText("processing"), threadID, messageID);
 
-        const { videoUrl, title, username, nickname, region } = data;
+    const res = await axios.get("https://rapido.zetsu.xyz/api/shoti");
+    const videoUrl = res.data.url;
 
-        const downloadResponse = await axios({
-            method: 'GET',
-            url: videoUrl,
-            responseType: 'stream'
-        });
+    const videoStream = (await axios.get(videoUrl, { responseType: "arraybuffer" })).data;
+    fs.writeFileSync(filePath, Buffer.from(videoStream, "utf-8"));
 
-        const writer = fs.createWriteStream(filePath);
-        downloadResponse.data.pipe(writer);
-
-        writer.on('finish', async () => {
-            await api.sendMessage({
-                body: `🎬 Title: ${title}\n👤 Username: ${username}\n📛 Nickname: ${nickname}\n🌍 Region: ${region}`,
-                attachment: fs.createReadStream(filePath)
-            }, event.threadID, () => fs.unlinkSync(filePath), event.messageID);
-        });
-
-        writer.on('error', (err) => {
-            console.error('Download error:', err);
-            fs.unlinkSync(filePath);
-            api.sendMessage('❌ Error downloading the video. Please try again later.', event.threadID, event.messageID);
-        });
-
-    } catch (error) {
-        console.error('API fetch error:', error);
-        return api.sendMessage("⚠️ An error occurred while fetching the video.", event.threadID, event.messageID);
-    }
+    return api.sendMessage(
+      { body: "🎬 Here's a random TikTok video:", attachment: fs.createReadStream(filePath) },
+      threadID,
+      () => fs.unlinkSync(filePath),
+      messageID
+    );
+  } catch (error) {
+    console.error("Shoti command error:", error);
+    return api.sendMessage(getText("error"), threadID, messageID);
+  }
 };
