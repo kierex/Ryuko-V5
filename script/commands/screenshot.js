@@ -1,44 +1,53 @@
+const axios = require("axios");
+
 module.exports.config = {
-        name: "screenshot",
-        version: "1.0.0",
-        hasPermssion: 0,
-        credits: "vrax",
-        description: "Screenshot một trang web nào đó (NOT ALLOW NSFW PAGE)",
-        commandCategory: "other",
-        usages: "[url site]",
-        cooldowns: 5,
-        dependencies: {
-        "fs-extra": "",
-        "path": "",
-        "url": ""
-    }
+  name: "screenshot",
+  version: "1.0.0",
+  permission: 0,
+  credits: "kaiz API by vraxyxx",
+  description: "Take a screenshot of any website.",
+  prefix: false,
+  premium: false,
+  category: "utility",
+  usages: "[website URL]",
+  cooldowns: 5
 };
 
-module.exports.onLoad = async () => {
-    const { existsSync } = global.nodemodule["fs-extra"];
-    const { resolve } = global.nodemodule["path"];
+module.exports.languages = {
+  english: {
+    missingUrl: "❌ Please provide a website URL to screenshot.\nExample: screenshot https://example.com",
+    processing: "📸 Taking screenshot, please wait...",
+    error: "⚠️ Failed to take screenshot from API."
+  }
+};
 
-    const path = resolve(__dirname, "cache", "pornlist.txt");
+module.exports.run = async function ({ api, event, args, getText }) {
+  const { threadID, messageID } = event;
+  const inputUrl = args.join(" ");
 
-    if (!existsSync(path)) return await global.utils.downloadFile("https://raw.githubusercontent.com/blocklistproject/Lists/master/porn.txt", path);
-    else return;
-}
+  if (!inputUrl) {
+    return api.sendMessage(getText("missingUrl"), threadID, messageID);
+  }
 
-module.exports.run = async ({ event, api, args, }) => {
-    const { readFileSync, createReadStream, unlinkSync } = global.nodemodule["fs-extra"];
-    const url = global.nodemodule["url"];
+  try {
+    api.sendMessage(getText("processing"), threadID, async () => {
+      const response = await axios.get("https://kaiz-apis.gleeze.com/api/screenshot", {
+        params: {
+          url: inputUrl,
+          apikey: "d70a144b-54ff-41de-a025-73aadd69e30c"
+        }
+      });
 
-    if (!global.moduleData.pornList) global.moduleData.pornList = readFileSync(__dirname + "/cache/pornlist.txt", "utf-8").split('\n').filter(site => site && !site.startsWith('#')).map(site => site.replace(/^(0.0.0.0 )/, ''));
-    const urlParsed = url.parse(args[0]);
+      const imageUrl = response.data.result;
+      if (!imageUrl) {
+        return api.sendMessage(getText("error"), threadID, messageID);
+      }
 
-    if (global.moduleData.pornList.some(pornURL => urlParsed.host == pornURL)) return api.sendMessage("The site you entered is not secure!!(NSFW PAGE)", event.threadID, event.messageID);
-
-    try {
-        const path = __dirname + `/cache/${event.threadID}-${event.senderID}s.png`;
-        await global.utils.downloadFile(`https://image.thum.io/get/width/1920/crop/400/fullpage/noanimate/${args[0]}`, path);
-        api.sendMessage({ attachment: createReadStream(path) }, event.threadID, () => unlinkSync(path));
-    }
-    catch {
-        return api.sendMessage("This url could not be found, the format is incorrect ?", event.threadID, event.messageID);
-    }
-}
+      const stream = (await axios.get(imageUrl, { responseType: "stream" })).data;
+      return api.sendMessage({ attachment: stream }, threadID, messageID);
+    });
+  } catch (err) {
+    console.error("Screenshot command error:", err.message);
+    return api.sendMessage(getText("error"), threadID, messageID);
+  }
+};
