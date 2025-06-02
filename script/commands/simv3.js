@@ -3,131 +3,119 @@ const fs = require("fs");
 module.exports.config = {
   name: "sim",
   version: "1.1.0",
-  hasPermssion: 0,
+  permission: 0,
   credits: "Yan Maglinte",
-  description: "Engage in conversation with Sim!",
-  usePrefix: false,
-  commandCategory: "chatbots",
-  usages: "Chat with sim",
-  cooldowns: 2,
+  description: "Chat with SIM AI using custom responses.",
+  prefix: false,
+  premium: false,
+  category: "chatbots",
+  usages: "[message]",
+  cooldowns: 2
 };
 
-/** *
-Check cache/DAN/readme.md for usage instructions.
-** */
+module.exports.languages = {
+  english: {
+    noInput: "Please type a message...",
+    notAdmin: "❌ You are not authorized to use this function!",
+    added: (word, res) => `✅ Added "${word}" with response: "${res}"`,
+    deletedRes: (word, res) => `✅ Deleted response "${res}" from "${word}"`,
+    deletedAll: (word) => `✅ Deleted all responses for "${word}"`,
+    wordNotFound: (word) => `❌ The word "${word}" does not exist.`,
+    resNotFound: (res, word) => `❌ The response "${res}" was not found under "${word}"`,
+    addOff: "⚠️ Add function is currently deactivated.",
+    delOff: "⚠️ Delete function is currently deactivated.",
+    noResponse: "ℹ️ I have no response yet. Teach me via cache/DAN/readme.md."
+  }
+};
 
-module.exports.run = function ({ api, event, args }) {
+module.exports.run = function ({ api, event, args, getText }) {
   const { messageID, threadID, senderID } = event;
   const content = args.join(" ");
-  if (!args[0]) return api.sendMessage("Please type a message...", threadID, messageID);
+  if (!args[0]) return api.sendMessage(getText("noInput"), threadID, messageID);
 
   try {
-    const jsonFile = fs.readFileSync(__dirname + "/cache/DAN/dan.json", "utf-8");
-    const responses = JSON.parse(jsonFile);
+    const dataPath = __dirname + "/cache/DAN/dan.json";
+    const responses = JSON.parse(fs.readFileSync(dataPath, "utf-8"));
     let respond = responses[content.toLowerCase()];
 
+    // Admin commands
     if (content.startsWith("add = ")) {
-      const switchCase = content.substring(6).toLowerCase();
-      if (!global.config.ADMINBOT.includes(senderID)) {
-        respond = "You are not authorized to use the add function!";
-      } else {
-        if (switchCase === "on") {
-          respond = "Add function activated.";
-          if (typeof global.config.ADD_FUNCTION !== "undefined")
-            global.config.ADD_FUNCTION = true;
-          else
-            console.log("Having some error on getting JSON");
-        } else if (switchCase === "off") {
-          respond = "Add function deactivated.";
-          if (typeof global.config.ADD_FUNCTION !== "undefined")
-            global.config.ADD_FUNCTION = false;
-          else
-            console.log("Having some error on getting JSON");
-        }
+      if (!global.config.ADMINBOT?.includes(senderID)) return api.sendMessage(getText("notAdmin"), threadID, messageID);
+      const toggle = content.substring(6).toLowerCase();
+      if (toggle === "on") {
+        global.config.ADD_FUNCTION = true;
+        respond = "✅ Add function activated.";
+      } else if (toggle === "off") {
+        global.config.ADD_FUNCTION = false;
+        respond = "✅ Add function deactivated.";
       }
     } else if (content.startsWith("del = ")) {
-      const switchCase = content.substring(6).toLowerCase();
-      if (!global.config.ADMINBOT.includes(senderID)) {
-        respond = "You are not authorized to use the delete function.";
-      } else {
-        if (switchCase === "on") {
-          respond = "Delete function activated. You can now delete words and responses";
-          if (typeof global.config.DEL_FUNCTION !== "undefined")
-            global.config.DEL_FUNCTION = true;
-          else
-            console.log("Having some error on getting JSON");
-        } else if (switchCase === "off") {
-          respond = "Delete function deactivated.";
-          if (typeof global.config.DEL_FUNCTION !== "undefined")
-            global.config.DEL_FUNCTION = false;
-          else
-            console.log("Having some error on getting JSON");
-        }
+      if (!global.config.ADMINBOT?.includes(senderID)) return api.sendMessage(getText("notAdmin"), threadID, messageID);
+      const toggle = content.substring(6).toLowerCase();
+      if (toggle === "on") {
+        global.config.DEL_FUNCTION = true;
+        respond = "✅ Delete function activated.";
+      } else if (toggle === "off") {
+        global.config.DEL_FUNCTION = false;
+        respond = "✅ Delete function deactivated.";
       }
-    } else if (content.includes("=!")) {
-      const [word, response] = content.split("=!").map((item) => item.trim());
-      const lowercaseWord = word.toLowerCase();
-      if (!global.config.DEL_FUNCTION) {
-        respond = "Delete function is currently deactivated.";
-      } else {
-        if (responses[lowercaseWord]) {
-          if (response) {
-            const index = responses[lowercaseWord].indexOf(response);
-            if (index !== -1) {
-              responses[lowercaseWord].splice(index, 1);
-              if (responses[lowercaseWord].length === 0) {
-                delete responses[lowercaseWord];
-              }
-              fs.writeFileSync(__dirname + "/cache/DAN/dan.json", JSON.stringify(responses, null, 4), "utf-8");
-              respond = `Successfully deleted the response "${response}" from the word "${word}"`;
-            } else {
-              respond = `The response "${response}" does not exist in the word "${word}"`;
-            }
+    }
+
+    // Delete response
+    else if (content.includes("=!")) {
+      const [word, res] = content.split("=!").map(x => x.trim());
+      const key = word.toLowerCase();
+
+      if (!global.config.DEL_FUNCTION) return api.sendMessage(getText("delOff"), threadID, messageID);
+
+      if (responses[key]) {
+        if (res) {
+          const index = responses[key].indexOf(res);
+          if (index !== -1) {
+            responses[key].splice(index, 1);
+            if (responses[key].length === 0) delete responses[key];
+            fs.writeFileSync(dataPath, JSON.stringify(responses, null, 4), "utf-8");
+            respond = getText("deletedRes", word, res);
           } else {
-            delete responses[lowercaseWord];
-            fs.writeFileSync(__dirname + "/cache/DAN/dan.json", JSON.stringify(responses, null, 4), "utf-8");
-            respond = `Successfully deleted the entire responses inside the word "${word}"`;
+            respond = getText("resNotFound", res, word);
           }
         } else {
-          respond = `The word "${word}" does not exist in the responses`;
+          delete responses[key];
+          fs.writeFileSync(dataPath, JSON.stringify(responses, null, 4), "utf-8");
+          respond = getText("deletedAll", word);
         }
-      }
-    } else if (content.includes("=>")) {
-      const [word, ...responseArray] = content.split("=>").map((item) => item.trim());
-
-      const response = responseArray.join("=>").trim();
-      if (!global.config.ADD_FUNCTION) {
-        respond = "Add function is currently deactivated.";
       } else {
-        if (word && response) {
-          const lowercaseWord = word.toLowerCase();
-          if (responses[lowercaseWord]) {
-            if (!responses[lowercaseWord].includes(response)) {
-              responses[lowercaseWord].push(response);
-            }
-          } else {
-            responses[lowercaseWord] = [response];
-          }
-          fs.writeFileSync(__dirname + "/cache/DAN/dan.json", JSON.stringify(responses, null, 4), "utf-8");
-          respond = `Successfully added "${word}" as a new word with the response: "${response}"`;
-        }
+        respond = getText("wordNotFound", word);
       }
     }
 
+    // Add response
+    else if (content.includes("=>")) {
+      const [word, ...rest] = content.split("=>").map(x => x.trim());
+      const response = rest.join("=>");
+      const key = word.toLowerCase();
+
+      if (!global.config.ADD_FUNCTION) return api.sendMessage(getText("addOff"), threadID, messageID);
+
+      if (word && response) {
+        if (!responses[key]) responses[key] = [];
+        if (!responses[key].includes(response)) responses[key].push(response);
+        fs.writeFileSync(dataPath, JSON.stringify(responses, null, 4), "utf-8");
+        respond = getText("added", word, response);
+      }
+    }
+
+    // Normal chat response
     if (Array.isArray(respond)) {
-      const randomIndex = Math.floor(Math.random() * respond.length);
-      respond = respond[randomIndex];
+      const index = Math.floor(Math.random() * respond.length);
+      respond = respond[index];
     } else if (!respond) {
-      respond = "ℹ️ Currently, I have no response for that yet, but you can kindly teach me. Check the current folder's cache/DAN/readme.md for usage instructions.";
+      respond = getText("noResponse");
     }
 
-    api.sendMessage(respond, threadID, (error, info) => {
-      if (error) {
-        console.error(error);
-      }
-    }, messageID);
+    return api.sendMessage(respond, threadID, messageID);
   } catch (error) {
-    console.error(error);
-    api.sendMessage("An error occurred while processing the request.", threadID, messageID);
+    console.error("Sim error:", error);
+    return api.sendMessage("❌ An error occurred while processing your request.", threadID, messageID);
   }
 };
