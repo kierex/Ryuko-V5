@@ -5,7 +5,7 @@ const activeSessions = new Map();
 
 module.exports = {
   name: "gagstock",
-  description: "Track Grow A Garden stock + weather every 30s, honeyStock every 1m (only notify if updated)",
+  description: "Track Grow A Garden stock and weather every 30s (only notifies if changed)",
   usage: "gagstock on | gagstock off",
   category: "Tools ⚒️",
 
@@ -17,9 +17,13 @@ module.exports = {
       if (session) {
         clearInterval(session.interval);
         activeSessions.delete(senderId);
-        return await sendMessage(senderId, { text: "🛑 Gagstock tracking stopped." }, pageAccessToken);
+        return await sendMessage(senderId, {
+          text: "🛑 Gagstock tracking stopped."
+        }, pageAccessToken);
       } else {
-        return await sendMessage(senderId, { text: "⚠️ You don't have an active gagstock session." }, pageAccessToken);
+        return await sendMessage(senderId, {
+          text: "⚠️ You don't have an active gagstock session."
+        }, pageAccessToken);
       }
     }
 
@@ -46,7 +50,7 @@ module.exports = {
         minute: "2-digit",
         second: "2-digit",
         hour12: true,
-        weekday: "short",
+        weekday: "short"
       });
 
     const sessionData = {
@@ -100,7 +104,8 @@ module.exports = {
           ? honeyStocks.map((h) => `🍯 ${h.name}: ${h.value}`).join("\n")
           : "No honey stock available.";
 
-        const message = `🌾 𝗚𝗿𝗼𝘄 𝗔 𝗚𝗮𝗿𝗱𝗲𝗻 — 𝗡𝗲𝘄 𝗦𝘁𝗼𝗰𝗸 & 𝗪𝗲𝗮𝘁𝗵𝗲𝗿\n\n` +
+        const message =
+          `🌾 𝗚𝗿𝗼𝘄 𝗔 𝗚𝗮𝗿𝗱𝗲𝗻 — 𝗡𝗲𝘄 𝗦𝘁𝗼𝗰𝗸 & 𝗪𝗲𝗮𝘁𝗵𝗲𝗿\n\n` +
           `🛠️ 𝗚𝗲𝗮𝗿:\n${gearSeed.gear?.join("\n") || "No gear."}\n\n` +
           `🌱 𝗦𝗲𝗲𝗱𝘀:\n${gearSeed.seeds?.join("\n") || "No seeds."}\n\n` +
           `🥚 𝗘𝗴𝗴𝘀:\n${egg.egg?.join("\n") || "No eggs."}\n\n` +
@@ -119,8 +124,8 @@ module.exports = {
       }
     };
 
-    sessionData.interval = setInterval(fetchAll, 30 * 1000); 
+    sessionData.interval = setInterval(fetchAll, 30 * 1000);
     activeSessions.set(senderId, sessionData);
-    await fetchAll(); 
+    await fetchAll();
   }
 };
