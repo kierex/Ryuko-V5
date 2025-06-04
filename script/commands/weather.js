@@ -1,46 +1,80 @@
 const axios = require("axios");
+const fs = require("fs");
+
+const SESSIONS_FILE = __dirname + "/gagstock_sessions.json";
 
 module.exports.config = {
   name: "gagstock",
-  version: "1.0.0",
+  version: "2.0.0",
   permission: 0,
   credits: "you",
   prefix: false,
   premium: false,
-  description: "Track Grow A Garden stock and weather updates.",
+  description: "Track Grow A Garden stock & weather with updates.",
   category: "Tools",
-  usages: "gagstock on | gagstock off",
+  usages: "gagstock on [interval] | gagstock off",
   cooldowns: 3,
 };
 
 const activeSessions = new Map();
 
-module.exports.run = async ({ api, event, args }) => {
+// Load persisted sessions on start
+if (fs.existsSync(SESSIONS_FILE)) {
+  const saved = JSON.parse(fs.readFileSync(SESSIONS_FILE, "utf-8"));
+  for (const id in saved) {
+    activeSessions.set(id, saved[id]);
+  }
+}
+
+const saveSessions = () => {
+  const plain = {};
+  for (const [id, session] of activeSessions.entries()) {
+    plain[id] = { lastCombinedKey: session.lastCombinedKey, lastMessage: session.lastMessage };
+  }
+  fs.writeFileSync(SESSIONS_FILE, JSON.stringify(plain, null, 2));
+};
+
+module.exports.languages = {
+  english: {
+    start: "✅ Gagstock tracking started. You’ll get updates every %1 seconds!",
+    stop: "🛑 Gagstock tracking stopped.",
+    alreadyOn: "⚠️ You are already tracking Gagstock.",
+    notTracking: "⚠️ You're not tracking Gagstock.",
+    usage: "📌 Usage:\n• gagstock on [interval]\n• gagstock off"
+  },
+  bangla: {
+    start: "✅ গ্যাগস্টক ট্র্যাকিং চালু হয়েছে। আপনি প্রতি %1 সেকেন্ডে আপডেট পাবেন!",
+    stop: "🛑 গ্যাগস্টক ট্র্যাকিং বন্ধ হয়েছে।",
+    alreadyOn: "⚠️ আপনি ইতিমধ্যেই ট্র্যাক করছেন।",
+    notTracking: "⚠️ আপনি এখন ট্র্যাক করছেন না।",
+    usage: "📌 ব্যবহার:\n• gagstock on [second]\n• gagstock off"
+  }
+};
+
+module.exports.run = async ({ api, event, args, getText }) => {
   const { threadID, messageID, senderID } = event;
-  const action = args[0]?.toLowerCase();
+  const lang = global.config.language || "english";
+  const intervalSec = parseInt(args[1]) || 30;
 
   const send = (msg) => api.sendMessage(msg, threadID, messageID);
 
-  if (action === "off") {
+  if (args[0] === "off") {
     const session = activeSessions.get(senderID);
-    if (session) {
-      clearInterval(session.interval);
+    if (session && session.intervalId) {
+      clearInterval(session.intervalId);
       activeSessions.delete(senderID);
-      return send("🛑 Gagstock tracking stopped.");
+      saveSessions();
+      return send(getText("stop"));
     } else {
-      return send("⚠️ You don't have an active gagstock session.");
+      return send(getText("notTracking"));
     }
   }
 
-  if (action !== "on") {
-    return send("📌 Usage:\n• gagstock on — start tracking\n• gagstock off — stop tracking");
-  }
+  if (args[0] !== "on") return send(getText("usage"));
 
-  if (activeSessions.has(senderID)) {
-    return send("📡 You're already tracking Gagstock. Use `gagstock off` to stop.");
-  }
+  if (activeSessions.has(senderID)) return send(getText("alreadyOn"));
 
-  send("✅ Gagstock tracking started! You'll be notified when stock or weather changes.");
+  send(getText("start", intervalSec));
 
   const getPHTime = (timestamp) =>
     new Date(timestamp).toLocaleString("en-PH", {
@@ -53,12 +87,12 @@ module.exports.run = async ({ api, event, args }) => {
     });
 
   const sessionData = {
-    interval: null,
     lastCombinedKey: null,
-    lastMessage: ""
+    lastMessage: "",
+    intervalId: null
   };
 
-  const fetchAll = async () => {
+  const fetchData = async () => {
     try {
       const [gearSeedRes, eggRes, weatherRes, honeyStockRes] = await Promise.all([
         axios.get("https://growagardenstock.com/api/stock?type=gear-seeds"),
@@ -67,62 +101,49 @@ module.exports.run = async ({ api, event, args }) => {
         axios.get("http://65.108.103.151:22377/api/stocks?type=honeyStock")
       ]);
 
-      const gearSeed = gearSeedRes.data;
+      const gear = gearSeedRes.data;
       const egg = eggRes.data;
       const weather = weatherRes.data;
       const honey = honeyStockRes.data;
 
       const combinedKey = JSON.stringify({
-        gear: gearSeed.gear,
-        seeds: gearSeed.seeds,
+        gear: gear.gear,
+        seeds: gear.seeds,
         egg: egg.egg,
         weather: weather.updatedAt,
-        honey: honey.updatedAt,
-        honeyList: honey.honeyStock
+        honey: honey.updatedAt
       });
 
       if (combinedKey === sessionData.lastCombinedKey) return;
+
       sessionData.lastCombinedKey = combinedKey;
 
       const now = Date.now();
-
-      const gearTime = getPHTime(gearSeed.updatedAt);
-      const gearReset = Math.max(300 - Math.floor((now - gearSeed.updatedAt) / 1000), 0);
-      const gearResetText = `${Math.floor(gearReset / 60)}m ${gearReset % 60}s`;
-
-      const eggTime = getPHTime(egg.updatedAt);
+      const gearReset = Math.max(300 - Math.floor((now - gear.updatedAt) / 1000), 0);
       const eggReset = Math.max(600 - Math.floor((now - egg.updatedAt) / 1000), 0);
-      const eggResetText = `${Math.floor(eggReset / 60)}m ${eggReset % 60}s`;
 
-      const weatherIcon = weather.icon || "🌦️";
-      const weatherDesc = weather.currentWeather || "Unknown";
-      const weatherBonus = weather.cropBonuses || "N/A";
-
-      const honeyStocks = honey.honeyStock || [];
-      const honeyText = honeyStocks.length
-        ? honeyStocks.map((h) => `🍯 ${h.name}: ${h.value}`).join("\n")
-        : "No honey stock available.";
-
-      const message = `🌾 𝗚𝗿𝗼𝘄 𝗔 𝗚𝗮𝗿𝗱𝗲𝗻 — 𝗡𝗲𝘄 𝗦𝘁𝗼𝗰𝗸 & 𝗪𝗲𝗮𝘁𝗵𝗲𝗿\n\n` +
-        `🛠️ 𝗚𝗲𝗮𝗿:\n${gearSeed.gear?.join("\n") || "No gear."}\n\n` +
-        `🌱 𝗦𝗲𝗲𝗱𝘀:\n${gearSeed.seeds?.join("\n") || "No seeds."}\n\n` +
-        `🥚 𝗘𝗴𝗴𝘀:\n${egg.egg?.join("\n") || "No eggs."}\n\n` +
-        `🌤️ 𝗪𝗲𝗮𝘁𝗵𝗲𝗿: ${weatherIcon} ${weatherDesc}\n🪴 𝗕𝗼𝗻𝘂𝘀: ${weatherBonus}\n\n` +
-        `📅 𝗚𝗲𝗮𝗿/𝗦𝗲𝗲𝗱 𝗨𝗽𝗱𝗮𝘁𝗲𝗱: ${gearTime}\n🔁 𝗥𝗲𝘀𝗲𝘁 𝗶𝗻: ${gearResetText}\n\n` +
-        `📅 𝗘𝗴𝗴 𝗨𝗽𝗱𝗮𝘁𝗲𝗱: ${eggTime}\n🔁 𝗥𝗲𝘀𝗲𝘁 𝗶𝗻: ${eggResetText}\n\n` +
-        `📦 𝗛𝗼𝗻𝗲𝘆 𝗦𝘁𝗼𝗰𝗸:\n${honeyText}`;
+      const message =
+        `🌾 𝗚𝗿𝗼𝘄 𝗔 𝗚𝗮𝗿𝗱𝗲𝗻 — 𝗨𝗽𝗱𝗮𝘁𝗲\n\n` +
+        `🛠️ 𝗚𝗲𝗮𝗿:\n${gear.gear?.join("\n") || "No gear"}\n\n` +
+        `🌱 𝗦𝗲𝗲𝗱𝘀:\n${gear.seeds?.join("\n") || "No seeds"}\n\n` +
+        `🥚 𝗘𝗴𝗴𝘀:\n${egg.egg?.join("\n") || "No eggs"}\n\n` +
+        `🌤️ 𝗪𝗲𝗮𝘁𝗵𝗲𝗿: ${weather.icon || "🌥️"} ${weather.currentWeather}\n🪴 𝗕𝗼𝗻𝘂𝘀: ${weather.cropBonuses || "N/A"}\n\n` +
+        `📦 𝗛𝗼𝗻𝗲𝘆:\n${honey.honeyStock.map(h => `🍯 ${h.name}: ${h.value}`).join("\n") || "N/A"}\n\n` +
+        `⏱ 𝗚𝗲𝗮𝗿 Reset: ${Math.floor(gearReset / 60)}m ${gearReset % 60}s\n` +
+        `⏱ 𝗘𝗴𝗴 Reset: ${Math.floor(eggReset / 60)}m ${eggReset % 60}s`;
 
       if (message !== sessionData.lastMessage) {
         sessionData.lastMessage = message;
-        await api.sendMessage(message, threadID, messageID);
+        await send(message);
       }
 
+      saveSessions();
     } catch (err) {
-      console.error(`❌ Gagstock Error for ${senderID}:`, err.message);
+      console.error(`❌ Error fetching stock for ${senderID}: ${err.message}`);
     }
   };
 
-  sessionData.interval = setInterval(fetchAll, 30 * 1000);
+  sessionData.intervalId = setInterval(fetchData, intervalSec * 1000);
   activeSessions.set(senderID, sessionData);
-  await fetchAll();
+  fetchData();
 };
